@@ -23,7 +23,8 @@ namespace KerboKatz
         Directory.CreateDirectory(settingsPath);
       }
       var settingsFile = settingsPath + file + ".xml";
-      var newSettings = Load(settingsFile);
+      UnityEngine.Debug.Log("KerboKatz: Load settings " + settingsFile);
+            var newSettings = Load(settingsFile);
       if (newSettings == null)
       {
         newSettings = new T();
