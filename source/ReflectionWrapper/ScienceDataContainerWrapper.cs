@@ -1,27 +1,32 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-
-namespace KerboKatz.ReflectionWrapper
+﻿namespace KerboKatz.ReflectionWrapper
 {
-    public class ScienceDataContainerWrapper : ScienceDataContainerWrapper<IScienceDataContainer>
+    public class ScienceDataContainerWrapper
+        : ScienceDataContainerWrapper<IScienceDataContainer>
     {
-        public ScienceDataContainerWrapper(IScienceDataContainer instance) 
-            : base(instance)
+        public ScienceDataContainerWrapper(IScienceDataContainer baseObject)
+            : base(baseObject)
         {
         }
     }
-    public class ScienceDataContainerWrapper<T> : ReflectionHelper<T>
-        where T: IScienceDataContainer
+
+    public class ScienceDataContainerWrapper<T>
+        where T : IScienceDataContainer
     {
-        public ScienceDataContainerWrapper(T instance) : base(instance)
+        public ScienceDataContainerWrapper(T baseObject)
         {
+            BaseObject = baseObject;
         }
-        public ScienceData[] GetData() => GetMethodResult(e => e.GetData());
-        public int GetScienceCount() => GetMethodResult(e => e.GetScienceCount());
-        public void ReturnData(ScienceData data) => ExecuteMethod(e => e.ReturnData(data));
-        public void DumpData(ScienceData data) => ExecuteMethod(e => e.DumpData(data));
-        public bool IsRerunnable() => GetMethodResult(e => e.IsRerunnable());
+
+        public T BaseObject { get; }
+
+        public ScienceData[] GetData() => BaseObject.ReflectionExecute(e => e.GetData());
+
+        public int GetScienceCount() => BaseObject.ReflectionExecute(e => e.GetScienceCount());
+
+        public void ReturnData(ScienceData data) => BaseObject.ReflectionExecute(e => e.ReturnData(data));
+
+        public void DumpData(ScienceData data) => BaseObject.ReflectionExecute(e => e.DumpData(data));
+
+        public bool IsRerunnable() => BaseObject.ReflectionExecute(e => e.IsRerunnable());
     }
 }

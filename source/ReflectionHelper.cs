@@ -4,94 +4,157 @@
     using System.Collections.Generic;
     using System.Linq.Expressions;
     using System.Reflection;
-    using JetBrains.Annotations;
     using UniLinq;
 
-    public class ReflectionHelper<T1>
+    public static class ReflectionHelper
     {
-        public readonly T1 instance;
+        public static T2 ReflectionExecute<T, T2>(this T instance, Expression<Func<T, T2>> exp)
+        {
+            return GetExpression(instance, exp).Compile().Invoke(instance);
+        }
 
-        protected ReflectionHelper(T1 instance)
+        public static void ReflectionExecute<T>(this T instance, Expression<Action<T>> exp)
         {
-            this.instance = instance;
+            GetExpression(instance, exp).Compile().Invoke(instance);
         }
-        public T GetMemberWithReflection<T>(Expression<Func<T1, T>> field)
+
+        public static void ReflectionAssign<T, T2>(this T instance, Expression<Func<T, T2>> exp, T2 value)
         {
-            var member = instance.GetType().GetField((field.Body as MemberExpression).Member.Name);
-            if(member != null)
-                return (T)member.GetValue(instance);
-            var property = instance.GetType().GetProperty((field.Body as MemberExpression).Member.Name);
-            return (T)property.GetValue(instance, new object[0]);
-        }
-        public void SetMemberWithReflection<T>(Expression<Func<T1, T>> field, T value)
-        {
-            var member = instance.GetType().GetField((field.Body as MemberExpression).Member.Name);
-            if (member != null)
+            if (exp.Body is MemberExpression me)
             {
-                member.SetValue(instance, value);
+                var member = GetMemberInfo(instance, me);
+                if (member == null)
+                {
+                    throw new InvalidOperationException($"Member {me.Member.Name} not found 1");
+                }
+                if (member is FieldInfo fi)
+                {
+                    fi.SetValue(instance, value);
+                    return;
+                }
+
+                if (member is PropertyInfo pi)
+                {
+                    pi.SetValue(instance, value, null);
+                    return;
+                }
+            }
+            else if (exp.Body is MethodCallExpression mce && mce.Method.Name == "get_Item" && mce.Arguments.Count == 1)
+            {
+                var m = mce.Object.Type.GetMethod("set_Item");
+                var methodField = typeof(MethodCallExpression).GetField("_method", BindingFlags.Instance | BindingFlags.NonPublic);
+                methodField.SetValue(mce, m);
+                //
+                var argumentsField = mce.GetType().GetField("_arguments", BindingFlags.Instance | BindingFlags.NonPublic);
+                var arguments = new List<Expression>((IEnumerable<Expression>)argumentsField.GetValue(mce));
+                arguments.Add(Expression.Constant(value, m.GetParameters()[1].ParameterType));
+                argumentsField.SetValue(mce, arguments.AsReadOnly());
+                var compiledExpression = Expression.Lambda(exp.Body, exp.Parameters.ToArray()).Compile();
+                compiledExpression.DynamicInvoke(instance);
+                return;
+            }
+            else
+            {
+                if (exp.Body is BinaryExpression be)
+                {
+                    switch (be.NodeType)
+                    {
+                        case ExpressionType.ArrayIndex:
+                            ConvertExpression(instance, be.Left);
+                            ConvertExpression(instance, be.Right);
+                            var compiledArrayExpression = Expression.Lambda(be.Left, exp.Parameters.ToArray()).Compile();
+                            var array = (Array)compiledArrayExpression.DynamicInvoke(instance);
+                            var compiledIndexExpression = Expression.Lambda(be.Right, exp.Parameters.ToArray()).Compile();
+                            var index = compiledIndexExpression.DynamicInvoke(instance);
+                            if (index.GetType() == typeof(long))
+                                array.SetValue(value, (long)index);
+                            else
+                                array.SetValue(value, (int)index);
+                            return;
+                    }
+                }
+            }
+            throw new InvalidOperationException($"ExpressionType {exp.Body.GetType().FullName} not supported");
+        }
+
+        private static TExpression GetExpression<T, TExpression>(this T instance, TExpression exp)
+            where TExpression : LambdaExpression
+        {
+            ConvertExpression(instance, exp.Body);
+            return exp;
+        }
+
+        private static void ConvertExpression<T, TExpression>(T instance, TExpression exp)
+        where TExpression : Expression
+        {
+            var mce = exp as MethodCallExpression;
+            if (mce != null)
+            {
+                var methods = instance.GetType().GetMethods().Where(e =>
+                {
+                    if (e.Name != mce.Method.Name) return false;
+                    var parameters = e.GetParameters();
+                    if (parameters.Length != mce.Arguments.Count) return false;
+                    for (var i = 0; i < parameters.Length; i++)
+                    {
+                        if (!parameters[i].ParameterType.IsAssignableFrom(mce.Arguments[i].Type)) return false;
+                    }
+
+                    return true;
+                })
+                .ToArray();
+                var method = methods.FirstOrDefault(e => e.DeclaringType == instance.GetType()) ?? methods.FirstOrDefault();
+                if (method == null)
+                {
+                    throw new InvalidOperationException($"Method {mce.Method.Name} not found");
+                }
+
+                var methodField = typeof(MethodCallExpression).GetField("_method", BindingFlags.Instance | BindingFlags.NonPublic);
+                methodField.SetValue(mce, method);
+
                 return;
             }
 
-            var property = instance.GetType().GetProperty((field.Body as MemberExpression).Member.Name);
-            property.SetValue(instance, value, new object[0]);
+            var me = exp as MemberExpression;
+            if (me != null)
+            {
+                var member = GetMemberInfo(instance, me);
+                if (member == null)
+                {
+                    throw new InvalidOperationException($"Member {me.Member.Name} not found 2");
+                }
+
+                switch (member.MemberType)
+                {
+                    case MemberTypes.Field:
+                        var field = me.GetType().GetField("_field", BindingFlags.Instance | BindingFlags.NonPublic);
+                        field.SetValue(me, member);
+                        return;
+
+                    case MemberTypes.Property:
+                        var property = me.GetType().GetField("_property", BindingFlags.Instance | BindingFlags.NonPublic);
+                        property.SetValue(me, member);
+                        return;
+
+                    default:
+                        throw new InvalidOperationException("Unknown membertype");
+                }
+            }
+
+            var be = exp as BinaryExpression;
+            if (be != null)
+            {
+                ConvertExpression(instance, be.Left);
+                ConvertExpression(instance, be.Right);
+                return;
+            }
         }
 
-        public T GetMethodResult<T>(Expression<Func<T1, T>> field)
+        private static MemberInfo GetMemberInfo(object instance, MemberExpression me)
         {
-            var mce = field.Body as MethodCallExpression;
-            var method = instance.GetType().GetMethod(mce.Method.Name);
-            if (method == null)
-                throw new InvalidOperationException($"Method {mce.Method.Name} not found on type " + instance.GetType().FullName);
-            var arguments = new List<object>();
-            foreach (var oneArgument in mce.Arguments)
-            {
-                var c = oneArgument as ConstantExpression;
-                if (c == null)
-                {
-                    var m = oneArgument as MemberExpression;
-                    if (m != null)
-                        c = m.Expression as ConstantExpression;
-                    if (m.Member is FieldInfo fi)
-                        arguments.Add(fi.GetValue(c.Value));
-                    else if (m.Member is PropertyInfo pi)
-                        arguments.Add(pi.GetValue(c.Value, null));
-                    else
-                        throw new InvalidOperationException($"Unable to parse argument of type {oneArgument.GetType()} to ConstantExpression");
-                }
-                else
-                    arguments.Add(c.Value);
-            }
-            return (T)method.Invoke(instance, arguments.ToArray());
-        }
-
-        public void ExecuteMethod(Expression<Action<T1>> field)
-        {
-            var mce = field.Body as MethodCallExpression;
-            if(mce == null)
-                throw new InvalidOperationException("Expression is not a MethodCallExpression");
-            var method = instance.GetType().GetMethod(mce.Method.Name);
-            if (method == null)
-                throw new InvalidOperationException($"Method {mce.Method.Name} not found on type " + instance.GetType().FullName);
-            var arguments = new List<object>();
-            foreach (var oneArgument in mce.Arguments)
-            {
-                var c = oneArgument as ConstantExpression;
-                if (c == null)
-                {
-                    var m = oneArgument as MemberExpression;
-                    if (m != null)
-                        c = m.Expression as ConstantExpression;
-                    if (m.Member is FieldInfo fi)
-                        arguments.Add(fi.GetValue(c.Value));
-                    else if (m.Member is PropertyInfo pi)
-                        arguments.Add(pi.GetValue(c.Value, null));
-                    else
-                        throw new InvalidOperationException($"Unable to parse argument of type {oneArgument.GetType()} to ConstantExpression");
-                }
-                else
-                    arguments.Add(c.Value);
-            }
-            method.Invoke(instance, arguments.ToArray());
+            var members = instance.GetType().GetMember(me.Member.Name);
+            var member = members.FirstOrDefault(e => e.DeclaringType == instance.GetType()) ?? members.FirstOrDefault();
+            return member;
         }
     }
 }
