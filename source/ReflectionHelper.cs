@@ -42,10 +42,10 @@
             else if (exp.Body is MethodCallExpression mce && mce.Method.Name == "get_Item" && mce.Arguments.Count == 1)
             {
                 var m = mce.Object.Type.GetMethod("set_Item");
-                var methodField = typeof(MethodCallExpression).GetField("_method", BindingFlags.Instance | BindingFlags.NonPublic);
+                var methodField = typeof(MethodCallExpression).GetField("method", BindingFlags.Instance | BindingFlags.NonPublic);
                 methodField.SetValue(mce, m);
                 //
-                var argumentsField = mce.GetType().GetField("_arguments", BindingFlags.Instance | BindingFlags.NonPublic);
+                var argumentsField = mce.GetType().GetField("arguments", BindingFlags.Instance | BindingFlags.NonPublic);
                 var arguments = new List<Expression>((IEnumerable<Expression>)argumentsField.GetValue(mce));
                 arguments.Add(Expression.Constant(value, m.GetParameters()[1].ParameterType));
                 argumentsField.SetValue(mce, arguments.AsReadOnly());
@@ -108,8 +108,11 @@
                 {
                     throw new InvalidOperationException($"Method {mce.Method.Name} not found");
                 }
+                
+                var methodField = typeof(MethodCallExpression).GetField("method", BindingFlags.Instance | BindingFlags.NonPublic, out var error);
+                if (methodField == null)
+                    throw new InvalidOperationException(error);
 
-                var methodField = typeof(MethodCallExpression).GetField("_method", BindingFlags.Instance | BindingFlags.NonPublic);
                 methodField.SetValue(mce, method);
 
                 return;
@@ -123,22 +126,10 @@
                 {
                     throw new InvalidOperationException($"Member {me.Member.Name} not found 2");
                 }
-
-                switch (member.MemberType)
-                {
-                    case MemberTypes.Field:
-                        var field = me.GetType().GetField("_field", BindingFlags.Instance | BindingFlags.NonPublic);
-                        field.SetValue(me, member);
-                        return;
-
-                    case MemberTypes.Property:
-                        var property = me.GetType().GetField("_property", BindingFlags.Instance | BindingFlags.NonPublic);
-                        property.SetValue(me, member);
-                        return;
-
-                    default:
-                        throw new InvalidOperationException("Unknown membertype");
-                }
+                var field = me.GetType().GetField("member", BindingFlags.Instance | BindingFlags.NonPublic, out var error);
+                if (field == null)
+                    throw new InvalidOperationException(error);
+                field.SetValue(me, member);
             }
 
             var be = exp as BinaryExpression;

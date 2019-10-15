@@ -65,6 +65,7 @@
     <Compile Include="Toolbar\IToolbar.cs" />
     <Compile Include="Toolbar\ToolbarBase.cs" />
     <Compile Include="Toolbar\ToolbarSettings.cs" />
+    <Compile Include="TypeExtensions.cs" />
     <Compile Include="UI\ButtonEventReplacer.cs" />
     <Compile Include="UI\CanvasController.cs" />
     <Compile Include="Utilities.cs" />
